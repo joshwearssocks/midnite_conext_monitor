@@ -90,7 +90,7 @@ def control_inverter() -> None:
         # Stop selling if we don't have excess power
         elif grid_support == 'Enable' and sell == 'Enable' and watts < 2000:
             conext.connect()
-            conext.set_register(Conext.grid_support_voltage, 46.5)
+            conext.set_register(Conext.grid_support_voltage, 47)
             conext.set_register(Conext.sell, BinaryState.Disable)
             system_state = SystemState.Invert
         # Stop inverting if SOC drops below 40%
@@ -102,7 +102,7 @@ def control_inverter() -> None:
         elif grid_support == 'Disable' and soc > 85:
             conext.connect()
             conext.set_register(Conext.grid_support, BinaryState.Enable)
-            conext.set_register(Conext.grid_support_voltage, 46.5)
+            conext.set_register(Conext.grid_support_voltage, 47)
             conext.set_register(Conext.sell, BinaryState.Disable)
             system_state = SystemState.Invert
     # Never fail
@@ -143,6 +143,7 @@ def process_data(signum, _) -> None:
     # Transmit data to influxdb
     if len(json_body) > 0:
         # Add in the inverter state
+        global system_state
         json_body.append(
             {
                 "measurement": "System",
