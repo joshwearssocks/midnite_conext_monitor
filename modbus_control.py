@@ -7,30 +7,6 @@ from pyModbusTCP.client import ModbusClient
 import logging
 import enum
 
-class SizedStr:
-    _string: str
-    _strlen: int
-
-    def __init__(self, string: str, strlen: int) -> None:
-        self._strlen = strlen
-        self.string = string
-
-    @property
-    def string(self) -> str:
-        return self._string
-
-    @string.setter
-    def string(self, string: str) -> None:
-        if len(string) > self._strlen:
-            raise ValueError(f"Expected string of length <= {self._strlen}, got {len(string)}.")
-        self._string = string
-
-    def __str__(self) -> str:
-        return self.string
-    
-    def __len__(self) -> str:
-        return self._strlen
-
 @dataclass
 class ModbusRegister:
     addr: int
@@ -41,15 +17,15 @@ class ModbusRegister:
     offset: float = 0.0
 
 class ModbusControl:
-    def __init__(self, modbus_addr: int, host: str, port: int = 503):
+    def __init__(self, modbus_addr: int, host: str, port: int = 503) -> None:
         self.client = ModbusClient(host=host, port=port, unit_id=modbus_addr, timeout=5)
         self.logger = logging.getLogger(self.__class__.__name__)
         logging.basicConfig(level=logging.INFO)
 
-    def connect(self):
+    def connect(self) -> None:
         self.client.open()
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         self.client.close()
 
     def get_register(self, reg: ModbusRegister) -> Union[str,float]:
