@@ -90,7 +90,9 @@ class ModbusControl:
         if ret == None:
             raise ValueError("Failed to write modbus registers.")
 
-        if round(self.get_register(reg), 2) != round(val, 2):
-            raise ValueError("Register contents do not match expected value after writing.")
+        if not isinstance(reg.reg_type, enum.EnumMeta):
+            # TODO: Support enumMeta checking
+            if round(self.get_register(reg), 2) != round(val, 2):
+                raise ValueError("Register contents do not match expected value after writing.")
 
         self.logger.debug("Set holding register 0x%04X to %.2f %s", reg.addr, val, reg.unit)

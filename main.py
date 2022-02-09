@@ -53,6 +53,7 @@ class SystemState(Enum):
     Waiting_For_Charge = auto()
     Invert = auto()
     Invert_Sell = auto()
+    Invert_Sell_Less = auto()
     Unknown = auto()
 
 system_state: SystemState = SystemState.Unknown
@@ -77,30 +78,34 @@ def control_inverter() -> None:
     grid_support = devices['Conext XW6848']['data']['fields']['grid_support']
     grid_support_voltage = devices['Conext XW6848']['data']['fields']['grid_support_voltage']
     v_batt = devices['Midnite Classic']['data']['fields']['v_batt']
+    inverter_status = devices['Conext XW6848']['data']['fields']['inverter_status']
 
     # Manage state transitions
     try:
-        # Increase sell power if there is excess sun
-        if grid_support == 'Enable' and v_batt > 56 and soc > 85:
+        # Start selling if it's sunny and the batteries are charged
+        if grid_support == 'Enable' and maximum_sell_amps < 21 and v_batt > 56 and soc > 75:
             conext.connect()
-            conext.set_register(Conext.maximum_sell_amps, maximum_sell_amps + 1)
+            conext.set_register(Conext.grid_support_voltage, 55.6)
+            conext.set_register(Conext.maximum_sell_amps, 21)
             system_state = SystemState.Invert_Sell
-        # Decrease sell power if we don't have excess power
-        elif grid_support == 'Enable' and maximum_sell_amps > 0 and v_batt < 55:
+        # Stop selling if we don't have excess power
+        elif grid_support == 'Enable' and maximum_sell_amps > 0 and watts < 2000 or inverter_status == 'AC_Pass_Through':
             conext.connect()
-            conext.set_register(Conext.maximum_sell_amps, maximum_sell_amps - 1)
+            conext.set_register(Conext.grid_support_voltage, 47)
+            conext.set_register(Conext.maximum_sell_amps, 0)
+            system_state = SystemState.Invert
         # Stop inverting if battery SOC is too low
         elif grid_support == 'Enable' and soc < 60:
             conext.connect()
             conext.set_register(Conext.grid_support, BinaryState.Disable)
             system_state = SystemState.Waiting_For_Charge
         # Start inverting again if the batteries are mostly charged
-        elif grid_support == 'Disable' and soc > 75:
+        elif grid_support == 'Disable' and soc > 80:
             conext.connect()
             conext.set_register(Conext.grid_support, BinaryState.Enable)
             conext.set_register(Conext.grid_support_voltage, 47)
             conext.set_register(Conext.maximum_sell_amps, 0)
-            system_state = SystemState.Invert
+            system_state = SystemState.Invert    
     # Never fail
     except Exception as e:
         print(f"Failed to adjust state transition: {e}")
