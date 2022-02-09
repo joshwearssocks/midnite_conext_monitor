@@ -67,8 +67,7 @@ def control_inverter() -> None:
     global system_state
 
     # Only run if both devices are available
-    if devices['Midnite Classic']['data'] is None or \
-        devices['Conext XW6848']['data'] is None:
+    if devices['Midnite Classic']['data'] is None or devices['Conext XW6848']['data'] is None:
         return
     
     # Recall some key parameters
@@ -77,28 +76,26 @@ def control_inverter() -> None:
     maximum_sell_amps = devices['Conext XW6848']['data']['fields']['maximum_sell_amps']
     grid_support = devices['Conext XW6848']['data']['fields']['grid_support']
     grid_support_voltage = devices['Conext XW6848']['data']['fields']['grid_support_voltage']
+    v_batt = devices['Midnite Classic']['data']['fields']['v_batt']
 
     # Manage state transitions
     try:
-        # Start selling if it's sunny and the batteries are charged
-        if grid_support == 'Enable' and maximum_sell_amps == 0 and watts > 2500 and soc > 90:
+        # Increase sell power if there is excess sun
+        if grid_support == 'Enable' and v_batt > 56 and soc > 85:
             conext.connect()
-            conext.set_register(Conext.grid_support_voltage, 55.6)
-            conext.set_register(Conext.maximum_sell_amps, 21)
+            conext.set_register(Conext.maximum_sell_amps, maximum_sell_amps + 1)
             system_state = SystemState.Invert_Sell
-        # Stop selling if we don't have excess power
-        elif grid_support == 'Enable' and maximum_sell_amps > 0 and watts < 2000:
+        # Decrease sell power if we don't have excess power
+        elif grid_support == 'Enable' and maximum_sell_amps > 0 and v_batt < 55:
             conext.connect()
-            conext.set_register(Conext.grid_support_voltage, 47)
-            conext.set_register(Conext.maximum_sell_amps, 0)
-            system_state = SystemState.Invert
+            conext.set_register(Conext.maximum_sell_amps, maximum_sell_amps - 1)
         # Stop inverting if battery SOC is too low
         elif grid_support == 'Enable' and soc < 60:
             conext.connect()
             conext.set_register(Conext.grid_support, BinaryState.Disable)
             system_state = SystemState.Waiting_For_Charge
         # Start inverting again if the batteries are mostly charged
-        elif grid_support == 'Disable' and soc > 85:
+        elif grid_support == 'Disable' and soc > 75:
             conext.connect()
             conext.set_register(Conext.grid_support, BinaryState.Enable)
             conext.set_register(Conext.grid_support_voltage, 47)
@@ -114,6 +111,7 @@ def control_inverter() -> None:
 def process_data(signum, _) -> None:
     """Reads all registers from the inverter and charge controller."""
     global system_state
+    global devices
 
     print("Processing...")
     json_body = []
