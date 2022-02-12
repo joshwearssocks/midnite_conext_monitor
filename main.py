@@ -83,13 +83,13 @@ def control_inverter() -> None:
     # Manage state transitions
     try:
         # Start selling if it's sunny and the batteries are charged
-        if grid_support == 'Enable' and maximum_sell_amps < 21 and v_batt > 56 and soc > 75:
+        if grid_support == 'Enable' and maximum_sell_amps < 21 and v_batt > 56 and soc > 75 and watts > 1000:
             conext.connect()
             conext.set_register(Conext.grid_support_voltage, 55.6)
             conext.set_register(Conext.maximum_sell_amps, 21)
             system_state = SystemState.Invert_Sell
         # Stop selling if we don't have excess power
-        elif grid_support == 'Enable' and maximum_sell_amps > 0 and watts < 2000 or inverter_status == 'AC_Pass_Through':
+        elif grid_support == 'Enable' and maximum_sell_amps > 0 and (watts < 2000 or inverter_status == 'AC_Pass_Through'):
             conext.connect()
             conext.set_register(Conext.grid_support_voltage, 47)
             conext.set_register(Conext.maximum_sell_amps, 0)
