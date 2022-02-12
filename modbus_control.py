@@ -90,9 +90,5 @@ class ModbusControl:
         if ret == None:
             raise ValueError("Failed to write modbus registers.")
 
-        ret_vals = self.client.read_holding_registers(reg.addr, reg.reg_len)
-
-        if ret_vals != ret:
-            raise ValueError("Register contents do not match expected value after writing.")
 
         self.logger.debug("Set holding register 0x%04X to %.2f %s", reg.addr, val, reg.unit)
