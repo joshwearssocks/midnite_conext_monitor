@@ -3,169 +3,152 @@
 from modbus_control import ModbusControl
 from conext_regmap import Conext, BinaryState
 from midnite_classic_regmap import MidniteClassic
+from system_manager import SystemManager, DeviceInfo, DATA_FIELDS
 
 from influxdb import InfluxDBClient
 
 import dataclasses
 import signal
 import time
-from typing import Dict, Union
-from datetime import datetime
+from typing import Dict, Union, Callable, Optional
 from enum import Enum, auto
+import logging
 
-MIDNITE_CLASSIC_MODBUS_ADDR = 1
-MIDNITE_CLASSIC_IP = '192.168.1.10'
-MIDNITE_CLASSIC_PORT = 502
-MIDNITE_CLASSIC_NAME = 'Midnite Classic'
+CLASSIC_MODBUS_ADDR = 1
+CLASSIC_IP = '192.168.1.10'
+CLASSIC_PORT = 502
+CLASSIC_NAME = 'Midnite Classic'
 
 CONEXT_MODBUS_ADDR = 10
 CONEXT_GW_IP = '192.168.2.227'
 CONEXT_GW_PORT = 503
-CONEXT_NAME = 'XW6848'
+CONEXT_NAME = 'Conext XW6848'
 
 INFLUXDB_IP = '192.168.1.2'
 INFLUXDB_PORT = 8086
 INFLUXDB_DB = 'energy'
 
-classic = ModbusControl(MIDNITE_CLASSIC_MODBUS_ADDR, MIDNITE_CLASSIC_IP, MIDNITE_CLASSIC_PORT)
+logging.basicConfig(level=logging.INFO)
+
+classic = ModbusControl(CLASSIC_MODBUS_ADDR, CLASSIC_IP, CLASSIC_PORT)
 conext = ModbusControl(CONEXT_MODBUS_ADDR, CONEXT_GW_IP, CONEXT_GW_PORT)
 influx_client = InfluxDBClient(host=INFLUXDB_IP, port=INFLUXDB_PORT, database=INFLUXDB_DB)
-
-INFLUX_TAG_FIELDS = Dict[str,Union[str,int,float]]
-INFLUX_DICT = Dict[str,Union[str,INFLUX_TAG_FIELDS]]
-
-devices = {
-    'Midnite Classic': {
-        'control': classic,
-        'modbus_id': MIDNITE_CLASSIC_MODBUS_ADDR,
-        'regmap': MidniteClassic,
-        'data': None
-    },
-    'Conext XW6848': {
-        'control': conext,
-        'modbus_id': CONEXT_MODBUS_ADDR,
-        'regmap': Conext,
-        'data': None
-    }
-}
 
 class SystemState(Enum):
     Waiting_For_Charge = auto()
     Invert = auto()
     Invert_Sell = auto()
-    Invert_Sell_Less = auto()
     Unknown = auto()
 
-system_state: SystemState = SystemState.Unknown
+class InverterStateMachine:
 
-def control_inverter() -> None:
-    """Adjusts inverter settings to optimize solar and battery consumption.
-    
-    This may be better suited for home automation software such as HomeAssistant,
-    but control of such critical components seems logical to keep in a more
-    standalone script.
-    """
-    global system_state
+    system_state = SystemState.Unknown
+    state_change_time = time.time()
 
-    # Only run if both devices are available
-    if devices['Midnite Classic']['data'] is None or devices['Conext XW6848']['data'] is None:
-        return
-    
-    # Recall some key parameters
-    soc = devices['Midnite Classic']['data']['fields']['battery_soc']
-    watts = devices['Midnite Classic']['data']['fields']['watts']
-    maximum_sell_amps = devices['Conext XW6848']['data']['fields']['maximum_sell_amps']
-    grid_support = devices['Conext XW6848']['data']['fields']['grid_support']
-    grid_support_voltage = devices['Conext XW6848']['data']['fields']['grid_support_voltage']
-    v_batt = devices['Midnite Classic']['data']['fields']['v_batt']
-    inverter_status = devices['Conext XW6848']['data']['fields']['inverter_status']
+    def __init__(self, influx_client: Optional[InfluxDBClient]) -> None:
+        self.influx_client = influx_client
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-    # Manage state transitions
-    try:
-        # Start selling if it's sunny and the batteries are charged
-        if grid_support == 'Enable' and maximum_sell_amps < 21 and v_batt > 56 and soc > 75 and watts > 1000:
-            conext.connect()
-            conext.set_register(Conext.grid_support_voltage, 55.6)
-            conext.set_register(Conext.maximum_sell_amps, 21)
-            system_state = SystemState.Invert_Sell
-        # Stop selling if we don't have excess power
-        elif grid_support == 'Enable' and maximum_sell_amps > 0 and (watts < 2000 or inverter_status == 'AC_Pass_Through'):
-            conext.connect()
-            conext.set_register(Conext.grid_support_voltage, 47)
-            conext.set_register(Conext.maximum_sell_amps, 0)
-            system_state = SystemState.Invert
-        # Stop inverting if battery SOC is too low
-        elif grid_support == 'Enable' and soc < 60:
-            conext.connect()
-            conext.set_register(Conext.grid_support, BinaryState.Disable)
-            system_state = SystemState.Waiting_For_Charge
-        # Start inverting again if the batteries are mostly charged
-        elif grid_support == 'Disable' and soc > 80:
-            conext.connect()
-            conext.set_register(Conext.grid_support, BinaryState.Enable)
-            conext.set_register(Conext.grid_support_voltage, 47)
-            conext.set_register(Conext.maximum_sell_amps, 0)
-            system_state = SystemState.Invert    
-    # Never fail
-    except Exception as e:
-        print(f"Failed to adjust state transition: {e}")
-    finally:
-        conext.disconnect()
+    def update_state(self, state: SystemState) -> None:
+        """Writes system state to influxdb."""
 
+        self.logger.info(f"Changing system state to {state._name_}")
+        self.system_state = state
+        self.state_change_time = time.time()
 
-def process_data(signum, _) -> None:
-    """Reads all registers from the inverter and charge controller."""
-    global system_state
-    global devices
+        if self.influx_client:
+            json_body = [
+                {
+                    "measurement": "System",
+                    "fields": {
+                        "state": self.system_state._name_
+                    }
+                }
+            ]
+            self.influx_client.write_points(json_body)
 
-    print("Processing...")
-    json_body = []
-    # Read holding registers from all devices
-    for device in devices:
-        ctrl = devices[device]['control']
-        regmap = devices[device]['regmap']
-        # Reset the value map
-        devices[device]['data'] = None
+    def detect_initial_state(self, grid_support: str, maximum_sell_amps: float) -> SystemState:
+        """Tries to determine what the current system state is."""
+
+        if grid_support == 'Disable':
+            return SystemState.Waiting_For_Charge
+        elif maximum_sell_amps == 0:
+            return SystemState.Invert
+        elif maximum_sell_amps > 0:
+            return SystemState.Invert_Sell
+
+        return SystemState.Unknown
+
+    def control_inverter(self, data_dict: Dict[str,DATA_FIELDS]) -> None:
+        """Adjusts inverter settings to optimize solar and battery consumption.
+        
+        This may be better suited for home automation software such as HomeAssistant,
+        but control of such critical components seems logical to keep in a more
+        standalone script.
+        """
+
+        # Only run if both devices are available
+        if data_dict[CLASSIC_NAME] is None or data_dict[CONEXT_NAME] is None:
+            return
+        
+        # Recall some key parameters
+        soc = data_dict[CLASSIC_NAME]['battery_soc']
+        watts = data_dict[CLASSIC_NAME]['watts']
+        maximum_sell_amps = data_dict[CONEXT_NAME]['maximum_sell_amps']
+        grid_support = data_dict[CONEXT_NAME]['grid_support']
+        grid_support_voltage = data_dict[CONEXT_NAME]['grid_support_voltage']
+        v_batt = data_dict[CLASSIC_NAME]['v_batt']
+        inverter_status = data_dict[CONEXT_NAME]['inverter_status']
+        combo_charge_stage = data_dict[CLASSIC_NAME]['combo_charge_stage']
+
+        # If state is unknown, figure out what the active state is
+        if self.system_state == SystemState.Unknown:
+            self.system_state = self.detect_initial_state(grid_support, maximum_sell_amps)
+            self.logger.info(f"Initial state appears to be {self.system_state._name_}")
+
+        # Manage state transitions
         try:
-            ctrl.connect()
-            devices[device]['data'] = {
-                "measurement": device,
-                "tags": {
-                    "modbus_id": devices[device]['modbus_id']
-                },
-                "fields": {
-                    f.name: ctrl.get_register(f.default) for f in dataclasses.fields(regmap)
-                }
-            }
-            json_body.append(devices[device]['data'])
+            # Start selling if it's sunny and it has been 5 minutes since the last state transition
+            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 300):
+                conext.connect()
+                conext.set_register(Conext.grid_support_voltage, 55.6)
+                conext.set_register(Conext.maximum_sell_amps, 21)
+                self.update_state(SystemState.Invert_Sell)
+            # Stop selling if we don't have excess power
+            elif self.system_state == SystemState.Invert_Sell and (watts < 1000 or inverter_status == 'AC_Pass_Through'):
+                conext.connect()
+                conext.set_register(Conext.grid_support_voltage, 47)
+                conext.set_register(Conext.maximum_sell_amps, 0)
+                self.update_state(SystemState.Invert)
+            # Stop inverting if battery SOC is too low
+            elif grid_support == 'Enable' and soc < 60:
+                conext.connect()
+                conext.set_register(Conext.grid_support, BinaryState.Disable)
+                self.update_state(SystemState.Waiting_For_Charge)
+            # Start inverting again if the charge controller is in absorb state
+            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb':
+                conext.connect()
+                conext.set_register(Conext.grid_support, BinaryState.Enable)
+                conext.set_register(Conext.grid_support_voltage, 47)
+                conext.set_register(Conext.maximum_sell_amps, 0)
+                self.update_state(SystemState.Invert)
         # Never fail
-        except Exception as e:
-            print(f"Unable to process data from {device}: {e}")
+        except (ValueError, ConnectionError) as e:
+            print(f"Failed to perform state transition: {e}")
         finally:
-            ctrl.disconnect()
-    # Transmit data to influxdb
-    if len(json_body) > 0:
-        # Add in the inverter state
-        json_body.append(
-            {
-                "measurement": "System",
-                "fields": {
-                    "state": system_state._name_
-                }
-            }
-        )
-        print("Sending points to influxdb...")
-        influx_client.write_points(json_body)
-    # Do some logic
-    control_inverter()
-
+            conext.disconnect()
 
 if __name__ == '__main__':
-    # Create a timer to process data every 10 seconds
-    signal.signal(signal.SIGALRM, process_data)
-    timer_start_delay = 10 - (datetime.now().second % 10)
-    signal.setitimer(signal.ITIMER_REAL, timer_start_delay, 10)
+    devices = [
+        DeviceInfo(name=CLASSIC_NAME, control=classic, regmap=MidniteClassic),
+        DeviceInfo(name=CONEXT_NAME, control=conext, regmap=Conext)
+    ]
+    manager = SystemManager(devices, influx_client)
+    state_machine = InverterStateMachine(influx_client)
+    manager.add_callback(state_machine.control_inverter)
+    # Start a timer with a 10 second period for monitoring the system
+    manager.start()
 
+    # Idle forever
     while True:
-        # Sleep for an arbitrary amount of time to idle the program
         time.sleep(1)

@@ -20,7 +20,6 @@ class ModbusControl:
     def __init__(self, modbus_addr: int, host: str, port: int = 503) -> None:
         self.client = ModbusClient(host=host, port=port, unit_id=modbus_addr, timeout=5)
         self.logger = logging.getLogger(self.__class__.__name__)
-        logging.basicConfig(level=logging.INFO)
 
     def connect(self) -> None:
         self.client.open()
