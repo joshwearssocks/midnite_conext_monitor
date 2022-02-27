@@ -109,7 +109,7 @@ class InverterStateMachine:
         # Manage state transitions
         try:
             # Start selling if it's sunny and it has been 5 minutes since the last state transition
-            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 300):
+            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 60):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 55.6)
                 conext.set_register(Conext.maximum_sell_amps, 21)
