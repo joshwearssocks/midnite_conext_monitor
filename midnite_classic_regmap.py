@@ -63,7 +63,7 @@ class MidniteClassic:
         addr=4117, reg_type=np.uint16, scale=0.1, unit='kWh'
     )
     kwh_lifetime: ModbusRegister = ModbusRegister(
-        addr=4125, reg_type=np.uint32, scale=0.1, unit='kWh'
+        addr=4125, reg_type=np.uint32, reg_len=2, scale=0.1, unit='kWh'
     )
 
         
