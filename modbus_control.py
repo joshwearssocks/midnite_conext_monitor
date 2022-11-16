@@ -44,7 +44,7 @@ class ModbusControl:
             val = val.rstrip('\x00')
         elif reg.reg_len == 1: # uint16 or enum
             val = reg.reg_type(ret[0])
-        elif reg.reg_len == 2: # uint32 or int32
+        elif reg.reg_type in [np.uint32, np.int32]:
             val = reg.reg_type((ret[0] << 16) + ret[1])
         else:
             raise ValueError("Unable to decode modbus register.")
