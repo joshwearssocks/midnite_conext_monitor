@@ -7,11 +7,16 @@ from pyModbusTCP.client import ModbusClient
 import logging
 import enum
 
+class Endianness(enum.Enum):
+    BIG = enum.auto()
+    LITTLE = enum.auto()
+
 @dataclass
 class ModbusRegister:
     addr: int
     reg_type: Tuple[str, np.int16, np.uint16, np.uint32, np.int32, enum.EnumMeta]
     reg_len: int = 1
+    reg_order: Endianness = Endianness.BIG
     unit: str = 'state'
     scale: float = 1.0
     offset: float = 0.0
@@ -45,7 +50,10 @@ class ModbusControl:
         elif reg.reg_len == 1: # uint16 or enum
             val = reg.reg_type(ret[0])
         elif reg.reg_type in [np.uint32, np.int32]:
-            val = reg.reg_type((ret[0] << 16) + ret[1])
+            if reg.reg_order == Endianness.BIG:
+                val = reg.reg_type((ret[0] << 16) + ret[1])
+            else:
+                val = reg.reg_type((ret[1] << 16) + ret[0])
         else:
             raise ValueError("Unable to decode modbus register.")
 

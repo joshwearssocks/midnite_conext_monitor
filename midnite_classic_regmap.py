@@ -3,7 +3,7 @@
 from pyModbusTCP.client import ModbusClient
 import dataclasses
 import numpy as np
-from modbus_control import ModbusControl, ModbusRegister
+from modbus_control import ModbusControl, ModbusRegister, Endianness
 from enum import IntEnum
 
 MODBUS_ADDR = 1
@@ -63,7 +63,7 @@ class MidniteClassic:
         addr=4117, reg_type=np.uint16, scale=0.1, unit='kWh'
     )
     kwh_lifetime: ModbusRegister = ModbusRegister(
-        addr=4125, reg_type=np.uint32, reg_len=2, scale=0.1, unit='kWh'
+        addr=4125, reg_type=np.uint32, reg_len=2, reg_order=Endianness.LITTLE, scale=0.1, unit='kWh'
     )
 
         
