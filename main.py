@@ -20,7 +20,7 @@ CLASSIC_PORT = 502
 CLASSIC_NAME = 'Midnite Classic'
 
 CONEXT_MODBUS_ADDR = 10
-CONEXT_GW_IP = '192.168.2.227'
+CONEXT_GW_IP = '192.168.1.11'
 CONEXT_GW_PORT = 503
 CONEXT_NAME = 'Conext XW6848'
 
@@ -121,7 +121,7 @@ class InverterStateMachine:
                 conext.set_register(Conext.maximum_sell_amps, 0)
                 self.update_state(SystemState.Invert)
             # Stop inverting if battery SOC is too low
-            elif grid_support == 'Enable' and soc < 95:
+            elif grid_support == 'Enable' and soc < 90:
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Disable)
                 self.update_state(SystemState.Waiting_For_Charge)
