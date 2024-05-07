@@ -96,7 +96,7 @@ class InverterStateMachine:
         watts = data_dict[CLASSIC_NAME]['watts']
         maximum_sell_amps = data_dict[CONEXT_NAME]['maximum_sell_amps']
         grid_support = data_dict[CONEXT_NAME]['grid_support']
-        grid_support_voltage = data_dict[CONEXT_NAME]['grid_support_voltage']
+        load_ac_power = data_dict[CONEXT_NAME]['load_ac_power']
         v_batt = data_dict[CLASSIC_NAME]['v_batt']
         inverter_status = data_dict[CONEXT_NAME]['inverter_status']
         combo_charge_stage = data_dict[CLASSIC_NAME]['combo_charge_stage']
@@ -109,13 +109,13 @@ class InverterStateMachine:
         # Manage state transitions
         try:
             # Start selling if it's sunny and it has been 1 minute since the last state transition
-            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 60):
+            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 240):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 55.6)
                 conext.set_register(Conext.maximum_sell_amps, 21)
                 self.update_state(SystemState.Invert_Sell)
             # Stop selling if we don't have excess power
-            elif self.system_state == SystemState.Invert_Sell and (watts < 1000 or inverter_status == 'AC_Pass_Through'):
+            elif self.system_state == SystemState.Invert_Sell and (watts < load_ac_power or inverter_status == 'AC_Pass_Through'):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 47)
                 conext.set_register(Conext.maximum_sell_amps, 0)
@@ -126,7 +126,7 @@ class InverterStateMachine:
                 conext.set_register(Conext.grid_support, BinaryState.Disable)
                 self.update_state(SystemState.Waiting_For_Charge)
             # Start inverting again if the charge controller is in absorb state
-            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb':
+            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb' and soc > 94:
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Enable)
                 conext.set_register(Conext.grid_support_voltage, 47)
