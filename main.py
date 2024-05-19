@@ -7,8 +7,7 @@ from system_manager import SystemManager, DeviceInfo, DATA_FIELDS
 
 from influxdb import InfluxDBClient
 
-import dataclasses
-import signal
+import datetime
 import time
 from typing import Dict, Union, Callable, Optional
 from enum import Enum, auto
@@ -106,6 +105,9 @@ class InverterStateMachine:
             self.system_state = self.detect_initial_state(grid_support, maximum_sell_amps)
             self.logger.info(f"Initial state appears to be {self.system_state._name_}")
 
+        # Monday after 2PM
+        recovery_time = datetime.datetime.today().weekday() == 0 and datetime.datetime.now().hour >= 14
+
         # Manage state transitions
         try:
             # Start selling if it's sunny and it has been 1 minute since the last state transition
@@ -120,13 +122,13 @@ class InverterStateMachine:
                 conext.set_register(Conext.grid_support_voltage, 47)
                 conext.set_register(Conext.maximum_sell_amps, 0)
                 self.update_state(SystemState.Invert)
-            # Stop inverting if battery SOC is too low
-            elif grid_support == 'Enable' and soc < 90:
+            # Stop inverting if battery SOC is too low or it is recovery time
+            elif grid_support == 'Enable' and (soc < 86 or recovery_time):
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Disable)
                 self.update_state(SystemState.Waiting_For_Charge)
             # Start inverting again if the charge controller is in absorb state
-            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb' and soc > 94:
+            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb' and soc > 90 and not recovery_time:
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Enable)
                 conext.set_register(Conext.grid_support_voltage, 47)
