@@ -105,8 +105,8 @@ class InverterStateMachine:
             self.system_state = self.detect_initial_state(grid_support, maximum_sell_amps)
             self.logger.info(f"Initial state appears to be {self.system_state._name_}")
 
-        # Monday after 2PM
-        recovery_time = datetime.datetime.today().weekday() == 0 and datetime.datetime.now().hour >= 14
+        # Monday after 5PM
+        recovery_time = datetime.datetime.today().weekday() == 0 and datetime.datetime.now().hour >= 17
 
         # Manage state transitions
         try:
