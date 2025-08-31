@@ -111,19 +111,20 @@ class InverterStateMachine:
         # Manage state transitions
         try:
             # Start selling if it's sunny and it has been 1 minute since the last state transition
-            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 240):
-                conext.connect()
-                conext.set_register(Conext.grid_support_voltage, 55.6)
-                conext.set_register(Conext.maximum_sell_amps, 21)
-                self.update_state(SystemState.Invert_Sell)
+            #if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 240):
+            #    conext.connect()
+            #    conext.set_register(Conext.grid_support_voltage, 55.6)
+            #    conext.set_register(Conext.maximum_sell_amps, 21)
+            #    self.update_state(SystemState.Invert_Sell)
+
             # Stop selling if we don't have excess power
-            elif self.system_state == SystemState.Invert_Sell and (watts < load_ac_power or inverter_status == 'AC_Pass_Through'):
+            if self.system_state == SystemState.Invert_Sell and (watts < load_ac_power or inverter_status == 'AC_Pass_Through'):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 47)
                 conext.set_register(Conext.maximum_sell_amps, 0)
                 self.update_state(SystemState.Invert)
             # Stop inverting if battery SOC is too low or it is recovery time
-            elif grid_support == 'Enable' and (soc < 86 or recovery_time):
+            elif grid_support == 'Enable' and (soc < 60 or recovery_time):
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Disable)
                 self.update_state(SystemState.Waiting_For_Charge)
