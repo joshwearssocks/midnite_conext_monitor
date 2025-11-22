@@ -114,10 +114,7 @@ class InverterStateMachine:
         if self.system_state == SystemState.Unknown:
             self.system_state = self.detect_initial_state(grid_support, maximum_sell_amps)
             self.logger.info(f"Initial state appears to be {self.system_state._name_}")
-
-        # Publish solar panel power on MQTT for openEVSE
-        if self.mqtt_client:
-            mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=watts, qos=1)
+            self.update_state(self.system_state)
 
         # Monday after 5PM
         recovery_time = datetime.datetime.today().weekday() == 0 and datetime.datetime.now().hour >= 17
@@ -154,6 +151,16 @@ class InverterStateMachine:
             print(f"Failed to perform state transition: {e}")
         finally:
             conext.disconnect()
+
+        # Publish solar panel power on MQTT for openEVSE
+        if self.mqtt_client:
+            # Leave 1kW for house consumption
+            pub_watts = max(0,watts-1000)
+            msg_info = mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=pub_watts, qos=1)
+            try:
+                msg_info.wait_for_publish(timeout=1)
+            except:
+                pass
 
 if __name__ == '__main__':
     devices = [
