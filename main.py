@@ -6,12 +6,14 @@ from midnite_classic_regmap import MidniteClassic
 from system_manager import SystemManager, DeviceInfo, DATA_FIELDS
 
 from influxdb import InfluxDBClient
+import paho.mqtt.client as mqtt
 
 import datetime
 import time
 from typing import Dict, Union, Callable, Optional
 from enum import Enum, auto
 import logging
+import struct
 
 CLASSIC_MODBUS_ADDR = 1
 CLASSIC_IP = '192.168.1.10'
@@ -27,11 +29,17 @@ INFLUXDB_IP = '192.168.1.2'
 INFLUXDB_PORT = 8086
 INFLUXDB_DB = 'energy'
 
+MQTT_IP = '192.168.1.2'
+MQTT_PORT = 1883
+MQTT_SOLAR_PRODUCTION_TOPIC = "mppt/pv_production_w"
+
 logging.basicConfig(level=logging.INFO)
 
 classic = ModbusControl(CLASSIC_MODBUS_ADDR, CLASSIC_IP, CLASSIC_PORT)
 conext = ModbusControl(CONEXT_MODBUS_ADDR, CONEXT_GW_IP, CONEXT_GW_PORT)
 influx_client = InfluxDBClient(host=INFLUXDB_IP, port=INFLUXDB_PORT, database=INFLUXDB_DB)
+mqtt_client = mqtt.Client()
+mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT)
 
 class SystemState(Enum):
     Waiting_For_Charge = auto()
@@ -44,8 +52,10 @@ class InverterStateMachine:
     system_state = SystemState.Unknown
     state_change_time = time.time()
 
-    def __init__(self, influx_client: Optional[InfluxDBClient]) -> None:
+    def __init__(self, influx_client: Optional[InfluxDBClient], mqtt_client: Optional[mqtt.Client]) -> None:
         self.influx_client = influx_client
+        self.mqtt_client = mqtt_client
+        self.last_mqtt_message_info: Optional[mqtt.MQTTMessageInfo] = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def update_state(self, state: SystemState) -> None:
@@ -105,6 +115,10 @@ class InverterStateMachine:
             self.system_state = self.detect_initial_state(grid_support, maximum_sell_amps)
             self.logger.info(f"Initial state appears to be {self.system_state._name_}")
 
+        # Publish solar panel power on MQTT for openEVSE
+        if self.mqtt_client:
+            mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=watts, qos=1)
+
         # Monday after 5PM
         recovery_time = datetime.datetime.today().weekday() == 0 and datetime.datetime.now().hour >= 17
 
@@ -147,7 +161,7 @@ if __name__ == '__main__':
         DeviceInfo(name=CONEXT_NAME, control=conext, regmap=Conext)
     ]
     manager = SystemManager(devices, influx_client)
-    state_machine = InverterStateMachine(influx_client)
+    state_machine = InverterStateMachine(influx_client, mqtt_client)
     manager.add_callback(state_machine.control_inverter)
     # Start a timer with a 10 second period for monitoring the system
     manager.start()
