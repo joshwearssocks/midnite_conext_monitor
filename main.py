@@ -39,7 +39,7 @@ classic = ModbusControl(CLASSIC_MODBUS_ADDR, CLASSIC_IP, CLASSIC_PORT)
 conext = ModbusControl(CONEXT_MODBUS_ADDR, CONEXT_GW_IP, CONEXT_GW_PORT)
 influx_client = InfluxDBClient(host=INFLUXDB_IP, port=INFLUXDB_PORT, database=INFLUXDB_DB)
 mqtt_client = mqtt.Client()
-mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT)
+mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT, keepalive=20)
 
 class SystemState(Enum):
     Waiting_For_Charge = auto()
@@ -155,12 +155,14 @@ class InverterStateMachine:
         # Publish solar panel power on MQTT for openEVSE
         if self.mqtt_client:
             # Leave 1kW for house consumption
-            pub_watts = max(0,watts-1000)
+            pub_watts = max(1,int(watts)-1000)
+            
             msg_info = mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=pub_watts, qos=1)
             try:
                 msg_info.wait_for_publish(timeout=1)
             except:
-                pass
+                mqtt_client.disconnect()
+                mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT, keepalive=20)
 
 if __name__ == '__main__':
     devices = [
