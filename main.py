@@ -106,6 +106,7 @@ class InverterStateMachine:
         maximum_sell_amps = data_dict[CONEXT_NAME]['maximum_sell_amps']
         grid_support = data_dict[CONEXT_NAME]['grid_support']
         load_ac_power = data_dict[CONEXT_NAME]['load_ac_power']
+        invert_dc_power = data_dict[CONEXT_NAME]['invert_dc_power']
         v_batt = data_dict[CLASSIC_NAME]['v_batt']
         inverter_status = data_dict[CONEXT_NAME]['inverter_status']
         combo_charge_stage = data_dict[CLASSIC_NAME]['combo_charge_stage']
@@ -154,9 +155,12 @@ class InverterStateMachine:
 
         # Publish solar panel power on MQTT for openEVSE
         if self.mqtt_client:
-            # Leave 1kW for house consumption
-            pub_watts = max(1,int(watts)-1000)
-            
+            # Leave 200W to account for inefficiency and battery charging
+            pub_watts = max(1,int(watts)-200)
+            # Correct for additional house power consumption
+            if load_ac_power > pub_watts:
+                pub_watts -= (load_ac_power - pub_watts)
+                pub_watts = max(1, pub_watts)
             msg_info = mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=pub_watts, qos=1)
             try:
                 msg_info.wait_for_publish(timeout=1)
