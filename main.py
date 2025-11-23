@@ -55,6 +55,7 @@ class InverterStateMachine:
     def __init__(self, influx_client: Optional[InfluxDBClient], mqtt_client: Optional[mqtt.Client]) -> None:
         self.influx_client = influx_client
         self.mqtt_client = mqtt_client
+        self.evse_offset = 0
         self.last_mqtt_message_info: Optional[mqtt.MQTTMessageInfo] = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -155,12 +156,19 @@ class InverterStateMachine:
 
         # Publish solar panel power on MQTT for openEVSE
         if self.mqtt_client:
+            # Adjust offset for additional house power consumption; assume 200W inverter self-consumption
+            instant_evse_offset = invert_dc_power - load_ac_power - 200
+            # Jump if the offset is big enough
+            if abs(instant_evse_offset) > 400:
+                self.evse_offset = instant_evse_offset
+            else:
+                if instant_evse_offset < self.evse_offset:
+                    self.evse_offset -= 10
+                else:
+                    self.evse_offset += 10
+            
             # Leave 200W to account for inefficiency and battery charging
-            pub_watts = max(1,int(watts)-200)
-            # Correct for additional house power consumption
-            if load_ac_power > pub_watts:
-                pub_watts -= (load_ac_power - pub_watts)
-                pub_watts = max(1, pub_watts)
+            pub_watts = max(1, watts - 200 + self.evse_offset)
             msg_info = mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=pub_watts, qos=1)
             try:
                 msg_info.wait_for_publish(timeout=1)
