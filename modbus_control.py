@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from pyModbusTCP.client import ModbusClient
 import logging
 import enum
+import struct
 
 class Endianness(enum.Enum):
     BIG = enum.auto()
     LITTLE = enum.auto()
 
-@dataclass
+@dataclass(frozen=True)
 class ModbusRegister:
     addr: int
     reg_type: Tuple[str, np.int16, np.uint16, np.uint32, np.int32, enum.EnumMeta]
@@ -51,9 +52,12 @@ class ModbusControl:
             val = reg.reg_type(ret[0])
         elif reg.reg_type in [np.uint32, np.int32]:
             if reg.reg_order == Endianness.BIG:
-                val = reg.reg_type((ret[0] << 16) + ret[1])
+                val = np.uint32((ret[0] << 16) + ret[1])
             else:
-                val = reg.reg_type((ret[1] << 16) + ret[0])
+                val = np.uint32((ret[1] << 16) + ret[0])
+            if reg.reg_type == np.int32:
+                bytes_repr = struct.pack('<I', val)
+                val = struct.unpack('<i', bytes_repr)[0]
         else:
             raise ValueError("Unable to decode modbus register.")
 
