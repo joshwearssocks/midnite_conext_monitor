@@ -37,6 +37,8 @@ class InverterStatus(IntEnum):
     Sell_To_Grid = 1036
     Load_Shaving = 1037
     Grid_Frequency_Stabilization = 1038
+    AC_Coupling = 1039
+    Reverse_Ibatt = 1040
 
 class ChargerStatus(IntEnum):
     Not_Charging = 768
@@ -61,6 +63,22 @@ class ChargerStatus(IntEnum):
     Ground_Fault = 787
     AC_Good_Pending = 788
 
+class AC1VoltageQualification(IntEnum):
+    Not_Qualifying = 0
+    Qualifying = 1
+    Missing = 2
+    Too_Low = 3
+    Too_High = 4
+    Qualification_Good = 5
+
+class AC1FrequencyQualification(IntEnum):
+    Not_Qualifying = 0
+    Qualifying = 1
+    Missing = 2
+    Too_Low = 3
+    Too_High = 4
+    Qualification_Good = 5
+
 @dataclasses.dataclass(frozen=True)
 class Conext:
     # General information
@@ -69,6 +87,12 @@ class Conext:
     )
     device_state: ModbusRegister = ModbusRegister(
         addr=0x0040, reg_type=OperatingState
+    )
+    grid_ac_voltage_qualified: ModbusRegister = ModbusRegister(
+        addr=0x0076, reg_type=AC1VoltageQualification
+    )
+    grid_ac_frequency_qualified: ModbusRegister = ModbusRegister(
+        addr=0x0077, reg_type=AC1FrequencyQualification
     )
     inverter_status: ModbusRegister = ModbusRegister(
         addr=0x007A, reg_type=InverterStatus
