@@ -6,14 +6,13 @@ from midnite_classic_regmap import MidniteClassic
 from system_manager import SystemManager, DeviceInfo, DATA_FIELDS
 
 from influxdb import InfluxDBClient
-import paho.mqtt.client as mqtt
+import paho.mqtt.publish
 
 import datetime
 import time
-from typing import Dict, Union, Callable, Optional
+from typing import Dict, Optional
 from enum import Enum, auto
 import logging
-import struct
 
 CLASSIC_MODBUS_ADDR = 1
 CLASSIC_IP = '192.168.1.10'
@@ -38,8 +37,6 @@ logging.basicConfig(level=logging.INFO)
 classic = ModbusControl(CLASSIC_MODBUS_ADDR, CLASSIC_IP, CLASSIC_PORT)
 conext = ModbusControl(CONEXT_MODBUS_ADDR, CONEXT_GW_IP, CONEXT_GW_PORT)
 influx_client = InfluxDBClient(host=INFLUXDB_IP, port=INFLUXDB_PORT, database=INFLUXDB_DB)
-mqtt_client = mqtt.Client()
-mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT, keepalive=20)
 
 class SystemState(Enum):
     Waiting_For_Charge = auto()
@@ -52,11 +49,10 @@ class InverterStateMachine:
     system_state = SystemState.Unknown
     state_change_time = time.time()
 
-    def __init__(self, influx_client: Optional[InfluxDBClient], mqtt_client: Optional[mqtt.Client]) -> None:
+    def __init__(self, influx_client: Optional[InfluxDBClient], send_mqtt: bool = False) -> None:
         self.influx_client = influx_client
-        self.mqtt_client = mqtt_client
+        self.send_mqtt = send_mqtt
         self.evse_offset = 0
-        self.last_mqtt_message_info: Optional[mqtt.MQTTMessageInfo] = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def update_state(self, state: SystemState) -> None:
@@ -150,12 +146,12 @@ class InverterStateMachine:
                 self.update_state(SystemState.Invert)
         # Never fail
         except (ValueError, ConnectionError) as e:
-            print(f"Failed to perform state transition: {e}")
+            self.logger.warning(f"Failed to perform state transition: {e}")
         finally:
             conext.disconnect()
 
         # Publish solar panel power on MQTT for openEVSE
-        if self.mqtt_client:
+        if self.send_mqtt:
             # Adjust offset for additional house power consumption; assume 200W inverter self-consumption
             instant_evse_offset = invert_dc_power - load_ac_power - 200
             # Jump if the offset is big enough
@@ -169,12 +165,16 @@ class InverterStateMachine:
             
             # Leave 200W to account for inefficiency and battery charging
             pub_watts = max(1, watts - 200 + self.evse_offset)
-            msg_info = mqtt_client.publish(topic=MQTT_SOLAR_PRODUCTION_TOPIC, payload=pub_watts, qos=1)
             try:
-                msg_info.wait_for_publish(timeout=1)
+                paho.mqtt.publish.single(
+                    topic=MQTT_SOLAR_PRODUCTION_TOPIC, 
+                    payload=pub_watts, 
+                    hostname=MQTT_IP, 
+                    port=MQTT_PORT
+                )
             except:
-                mqtt_client.disconnect()
-                mqtt_client.connect(host=MQTT_IP, port=MQTT_PORT, keepalive=20)
+                self.logger.warning("Failed to publish MQTT message.")
+            
 
 if __name__ == '__main__':
     devices = [
@@ -182,7 +182,7 @@ if __name__ == '__main__':
         DeviceInfo(name=CONEXT_NAME, control=conext, regmap=Conext)
     ]
     manager = SystemManager(devices, influx_client)
-    state_machine = InverterStateMachine(influx_client, mqtt_client)
+    state_machine = InverterStateMachine(influx_client, send_mqtt = True)
     manager.add_callback(state_machine.control_inverter)
     # Start a timer with a 10 second period for monitoring the system
     manager.start()
