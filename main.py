@@ -31,6 +31,7 @@ INFLUXDB_DB = 'energy'
 MQTT_IP = '192.168.1.2'
 MQTT_PORT = 1883
 MQTT_SOLAR_PRODUCTION_TOPIC = "mppt/pv_production_w"
+MPPT_GRID_EXPORT_TOPIC = "mppt/grid_export_w"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -102,6 +103,7 @@ class InverterStateMachine:
         watts = data_dict[CLASSIC_NAME]['watts']
         maximum_sell_amps = data_dict[CONEXT_NAME]['maximum_sell_amps']
         grid_support = data_dict[CONEXT_NAME]['grid_support']
+        grid_output_power = data_dict[CONEXT_NAME]['grid_output_power']
         load_ac_power = data_dict[CONEXT_NAME]['load_ac_power']
         invert_dc_power = data_dict[CONEXT_NAME]['invert_dc_power']
         v_batt = data_dict[CLASSIC_NAME]['v_batt']
@@ -152,29 +154,16 @@ class InverterStateMachine:
 
         # Publish solar panel power on MQTT for openEVSE
         if self.send_mqtt:
-            # Adjust offset for additional house power consumption; assume 200W inverter self-consumption
-            instant_evse_offset = invert_dc_power - load_ac_power - 200
-            # Jump if the offset is big enough
-            if abs(instant_evse_offset) > 400:
-                self.evse_offset = instant_evse_offset
-            else:
-                if instant_evse_offset < self.evse_offset:
-                    self.evse_offset -= 10
-                else:
-                    self.evse_offset += 10
-            
-            # Leave 200W to account for inefficiency and battery charging
-            pub_watts = max(1, watts - 200 + self.evse_offset)
-            try:
-                paho.mqtt.publish.single(
-                    topic=MQTT_SOLAR_PRODUCTION_TOPIC, 
-                    payload=pub_watts, 
-                    hostname=MQTT_IP, 
-                    port=MQTT_PORT
-                )
-            except:
-                self.logger.warning("Failed to publish MQTT message.")
-            
+            if self.system_state == SystemState.Invert_Sell:
+                try:
+                    paho.mqtt.publish.single(
+                        topic=MPPT_GRID_EXPORT_TOPIC, 
+                        payload=-1 * grid_output_power, 
+                        hostname=MQTT_IP, 
+                        port=MQTT_PORT
+                    )
+                except:
+                    self.logger.warning("Failed to publish MQTT message.")   
 
 if __name__ == '__main__':
     devices = [
