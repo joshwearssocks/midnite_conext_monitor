@@ -154,16 +154,15 @@ class InverterStateMachine:
 
         # Publish solar panel power on MQTT for openEVSE
         if self.send_mqtt:
-            if self.system_state == SystemState.Invert_Sell:
-                try:
-                    paho.mqtt.publish.single(
-                        topic=MPPT_GRID_EXPORT_TOPIC, 
-                        payload=-1 * grid_output_power, 
-                        hostname=MQTT_IP, 
-                        port=MQTT_PORT
-                    )
-                except:
-                    self.logger.warning("Failed to publish MQTT message.")   
+            try:
+                paho.mqtt.publish.single(
+                    topic=MQTT_SOLAR_PRODUCTION_TOPIC, 
+                    payload=grid_output_power, 
+                    hostname=MQTT_IP, 
+                    port=MQTT_PORT
+                )
+            except:
+                self.logger.warning("Failed to publish MQTT message.")   
 
 if __name__ == '__main__':
     devices = [
