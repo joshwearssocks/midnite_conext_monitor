@@ -56,6 +56,21 @@ class InverterStateMachine:
         self.evse_offset = 0
         self.logger = logging.getLogger(self.__class__.__name__)
 
+        # Buffer state changes to smooth state transitions
+        self.proposed_state: SystemState = SystemState.Unknown
+        self.initial_proposal_time = time.time()
+
+    def ready_to_change(self, proposed_state: SystemState, smoothing_seconds: int = 5*60) -> bool:
+        """Only return True if the proposed state hasn't changed for smoothing_seconds."""
+        new_time = time.time()
+        if proposed_state == self.proposed_state:
+            if new_time - self.initial_proposal_time >= smoothing_seconds:
+                return True
+        else:
+            self.proposed_state = proposed_state
+            self.initial_proposal_time = new_time
+        return False
+
     def update_state(self, state: SystemState) -> None:
         """Writes system state to influxdb."""
 
@@ -122,25 +137,32 @@ class InverterStateMachine:
         # Manage state transitions
         try:
             # Start selling if it's sunny and it has been 1 minute since the last state transition
-            if self.system_state == SystemState.Invert and v_batt > 56 and (time.time() - self.state_change_time > 240):
+            if self.system_state == SystemState.Invert and v_batt > 56 and \
+                    self.ready_to_change(SystemState.Invert_Sell):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 55.6)
                 conext.set_register(Conext.maximum_sell_amps, 21)
                 self.update_state(SystemState.Invert_Sell)
 
             # Stop selling if we don't have excess power, with a 500W buffer to account for transient loads
-            if self.system_state == SystemState.Invert_Sell and (watts < (load_ac_power-500) or inverter_status == 'AC_Pass_Through'):
+            if self.system_state == SystemState.Invert_Sell and \
+                    (watts < load_ac_power or inverter_status == 'AC_Pass_Through') and \
+                    self.ready_to_change(SystemState.Invert):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 47)
                 conext.set_register(Conext.maximum_sell_amps, 0)
                 self.update_state(SystemState.Invert)
+
             # Stop inverting if battery SOC is too low or it is recovery time
-            elif grid_support == 'Enable' and (soc < 60 or recovery_time):
+            elif grid_support == 'Enable' and (soc < 60 or recovery_time) and \
+                    self.ready_to_change(SystemState.Waiting_For_Charge):
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Disable)
                 self.update_state(SystemState.Waiting_For_Charge)
+
             # Start inverting again if the charge controller is in absorb state
-            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb' and soc > 90 and not recovery_time:
+            elif grid_support == 'Disable' and combo_charge_stage == 'Absorb' and soc > 90 and \
+                    (not recovery_time) and self.ready_to_change(SystemState.Invert):
                 conext.connect()
                 conext.set_register(Conext.grid_support, BinaryState.Enable)
                 conext.set_register(Conext.grid_support_voltage, 47)
