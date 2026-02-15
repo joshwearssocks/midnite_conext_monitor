@@ -128,8 +128,8 @@ class InverterStateMachine:
                 conext.set_register(Conext.maximum_sell_amps, 21)
                 self.update_state(SystemState.Invert_Sell)
 
-            # Stop selling if we don't have excess power
-            if self.system_state == SystemState.Invert_Sell and (watts < load_ac_power or inverter_status == 'AC_Pass_Through'):
+            # Stop selling if we don't have excess power, with a 500W buffer to account for transient loads
+            if self.system_state == SystemState.Invert_Sell and (watts < (load_ac_power-500) or inverter_status == 'AC_Pass_Through'):
                 conext.connect()
                 conext.set_register(Conext.grid_support_voltage, 47)
                 conext.set_register(Conext.maximum_sell_amps, 0)
